@@ -1,3 +1,58 @@
+import { initAudioContext, synths } from './synth.js';
+import { tracks, getCurrentTrackId, updateTracksDisplay } from './track.js';
+import { noteToFreq, noteToCanvasY, getClosestNote } from './notes.js';
+import { musicSettings } from './track.js';
+
+// 在文件开头添加 canvas 变量
+let canvas = null;
+let ctx = null;
+
+// 曲线编辑相关代码
+let curveSettings = {
+    duration: 3,
+    octaveRange: 3
+};
+
+let currentCurve = {
+    points: [],
+    trackId: null,
+    instrument: null
+};
+
+// 绘制状态变量
+let isDrawing = false;
+let lastPoint = null;
+let currentPath = [];
+let drawingSpeed = 0;
+const minWidth = 2;
+const maxWidth = 6;
+const speedFactor = 0.3;
+
+// 拖拽状态
+let dragState = {
+    isDragging: false,
+    trackId: null,
+    curveIndex: -1,
+    pointIndex: -1,
+    startX: 0,
+    startY: 0
+};
+
+// 当前绘制状态
+let currentStroke = {
+    points: [],
+    isComplete: false
+};
+
+// 编辑状态
+let editingCurveState = {
+    trackId: null,
+    curveIndex: null,
+    originalPoints: null,
+    isEditing: false
+};
+
+// 辅助函数
 function smoothPoint(prev, curr, next) {
     const tension = 0.3;
     return {
@@ -8,34 +63,6 @@ function smoothPoint(prev, curr, next) {
 
 function lerp(start, end, t) {
     return start + (end - start) * t;
-}
-
-function optimizePoints(points, tolerance = 5) {
-    if (points.length < 3) return points;
-    
-    const result = [points[0]];
-    let lastPoint = points[0];
-    
-    for (let i = 1; i < points.length - 1; i++) {
-        const point = points[i];
-        const distance = Math.sqrt(
-            Math.pow(point.x - lastPoint.x, 2) + 
-            Math.pow(point.y - lastPoint.y, 2)
-        );
-        
-        // 只有当点之间的距离大于容差时才保存
-        if (distance > tolerance) {
-            // 使用贝塞尔曲线平滑处理
-            const prevPoint = result[result.length - 1];
-            const nextPoint = points[i + 1];
-            const smoothedPoint = smoothPoint(prevPoint, point, nextPoint);
-            result.push(smoothedPoint);
-            lastPoint = smoothedPoint;
-        }
-    }
-    
-    result.push(points[points.length - 1]);
-    return result;
 }
 
 // 频率转换函数
@@ -51,105 +78,7 @@ function canvasYToFrequency(y) {
     return maxFreq - (y / canvas.height) * (maxFreq - baseFreq);
 }
 
-// 控制点检测函数
-function findNearestPoint(x, y) {
-    const threshold = 10;
-    let nearest = null;
-    let minDistance = threshold;
-
-    tracks.forEach(track => {
-        track.curves.forEach((curve, curveIndex) => {
-            curve.points.forEach((point, pointIndex) => {
-                const distance = Math.sqrt(
-                    Math.pow(point.x - x, 2) + 
-                    Math.pow(point.y - y, 2)
-                );
-                if (distance < minDistance) {
-                    minDistance = distance;
-                    nearest = {
-                        trackId: track.id,
-                        curveIndex: curveIndex,
-                        pointIndex: pointIndex
-                    };
-                }
-            });
-        });
-    });
-    return nearest;
-}
-
-// 内管理函数
-function cleanupUnusedCurves() {
-    tracks.forEach(track => {
-        track.curves = track.curves.filter(curve => 
-            curve && curve.points && curve.points.length > 1
-        );
-        
-        track.curves.forEach(curve => {
-            curve.points = optimizePoints(curve.points);
-        });
-    });
-    
-    if (window.gc) window.gc();
-}
-
-// 曲线编辑相关代码
-let curveSettings = {
-    duration: 3,
-    octaveRange: 3
-};
-
-let currentCurve = {
-    points: [],
-    trackId: null,
-    instrument: null
-};
-
-let isDrawing = false;
-let lastPoint = null;
-let currentPath = [];
-let drawingSpeed = 0;
-const minWidth = 2;
-const maxWidth = 6;
-const speedFactor = 0.3;
-let dragState = {
-    isDragging: false,
-    trackId: null,
-    curveIndex: -1,
-    pointIndex: -1,
-    startX: 0,
-    startY: 0
-};
-
-// 在文件开头添加 canvas 变量
-let canvas = null;
-let ctx = null;
-
-// 添加新的变量来跟踪当前绘制状态
-let currentStroke = {
-    points: [],
-    isComplete: false
-};
-
-// 添加曲线编辑状态
-let editingCurveState = {
-    trackId: null,
-    curveIndex: null,
-    originalPoints: null,
-    isEditing: false
-};
-
-// 添加音乐时间控制相关变量
-let musicSettings = {
-    bpm: 120,
-    timeSignature: {
-        numerator: 4,    // 每小节的拍数
-        denominator: 4    // 以几分音符为一拍
-    },
-    quantize: '8',       // 量化单位（8表示八分音符）
-    measureCount: 4      // 显示的小节数
-};
-
+// 声明所有要导出的函数
 function initCanvas() {
     canvas = document.getElementById('curveCanvas');
     ctx = canvas.getContext('2d');
@@ -178,7 +107,7 @@ function updateCanvasWidth() {
     canvas.style.height = canvas.height + 'px';
 }
 
-// 添加小节数更新函数
+// 添加小节数更��函数
 function updateMeasureCount(count) {
     musicSettings.measureCount = parseInt(count);
     updateCanvasWidth();
@@ -231,7 +160,7 @@ function drawGrid() {
         ctx.lineTo(x, canvas.height);
         ctx.stroke();
         
-        // 添���记
+        // 添加记
         if (i < musicSettings.measureCount) {
             ctx.fillStyle = '#666';
             ctx.font = '12px Arial';
@@ -362,7 +291,7 @@ function smoothCurvePoints(points) {
     
     // 对中间的点进行平滑
     for (let i = 0; i < points.length; i++) {
-        // 如果是第一个或最后一个点，直接保持不变
+        // 如果是第一个或最后一个点，直接保持���变
         if (i === 0 || i === points.length - 1) {
             continue;
         }
@@ -466,12 +395,11 @@ function pointToLineDistance(point, lineStart, lineEnd) {
     return Math.sqrt(dx * dx + dy * dy);
 }
 
-// 在 curve.js 的末尾添加这些函数
-
+// 采样点函数
 function sampleCurvePoints(points) {
     const beatsPerMeasure = musicSettings.timeSignature.numerator;
     const totalBeats = beatsPerMeasure * musicSettings.measureCount;
-    const notesPerBeat = parseInt(musicSettings.quantize) / 4; // 将量化值转换为每拍的音符数
+    const notesPerBeat = parseInt(musicSettings.quantize) / 4;
     const totalNotes = totalBeats * notesPerBeat;
     
     const sampledPoints = [];
@@ -484,21 +412,20 @@ function sampleCurvePoints(points) {
     return sampledPoints;
 }
 
+// 播放曲线点函数
 function playCurvePoints(points, instrument, startTime) {
     if (!canvas || !points.length) return;
     
     const beatDuration = 60 / musicSettings.bpm;
-    const noteDuration = beatDuration * (4 / parseInt(musicSettings.quantize)); // 使用量化值确定音符时值
+    const noteDuration = beatDuration * (4 / parseInt(musicSettings.quantize));
     
     points.forEach((point, index) => {
         const delay = (point.x / canvas.width) * curveSettings.duration;
-        const baseFreq = noteToFreq['C2'];
-        const maxFreq = baseFreq * Math.pow(2, curveSettings.octaveRange);
-        const frequency = maxFreq - (point.y / canvas.height) * (maxFreq - baseFreq);
+        const frequency = canvasYToFrequency(point.y);
         
         if (isFinite(frequency) && frequency > 0) {
             try {
-                const note = Tone.Frequency(frequency).toNote();
+                const note = getClosestNote(frequency);
                 if (note && typeof note === 'string') {
                     synths[instrument].triggerAttackRelease(
                         note,
@@ -590,7 +517,7 @@ function draw(e) {
             y: coords.y
         });
         
-        // 立即重绘以显示实时反馈
+        // 立即重绘以显示实时反
         drawAllCurves();
         
         // 检查是否需要滚动
@@ -900,7 +827,7 @@ function playCurve() {
             }
         });
         
-        // 如果有正在编辑的曲线，也播放它
+        // 如果有正在编辑的线，也播放它
         if (currentStroke.points.length > 0) {
             const sampledPoints = sampleCurvePoints(currentStroke.points);
             playCurvePoints(sampledPoints, track.instrument, now);
@@ -942,7 +869,7 @@ function convertToNotes(curve) {
         const velocity = Math.round((point.width || minWidth) / maxWidth * 127);
         
         if (!currentNote) {
-            // 开始新音符
+            // 始新音符
             currentNote = {
                 note: note,
                 time: quantizeTime(time),
@@ -989,7 +916,7 @@ function convertToLine() {
     const track = tracks.find(t => t.id === trackId);
     if (!track) return;
     
-    // 将当前音轨的所有曲线换为音
+    // 将当前音的所有曲线换为音
     track.curves.forEach(curve => {
         const notes = convertToNotes(curve);
         track.notes = track.notes.concat(notes);
@@ -1095,7 +1022,7 @@ function drawPitchGrid() {
     ctx.lineWidth = 0.5;
     for (let i = 0; i < curveSettings.octaveRange; i++) {
         const baseY = i * octaveHeight;
-        const semitoneHeight = octaveHeight / 12; // 12个半音
+        const semitoneHeight = octaveHeight / 12; // 12半音
         
         for (let j = 1; j < 12; j++) {
             const y = baseY + j * semitoneHeight;
@@ -1142,7 +1069,7 @@ function autoScroll(x) {
     // 计算相对于容器的 x 坐标
     const relativeX = x - rect.left;
     
-    // 定义触发区域（右侧三分之一）
+    // 定义触发区域（右侧三分之）
     const triggerZone = clientWidth * (2/3);
     const scrollStep = 5; // 增加基础滚动步长
     
@@ -1171,3 +1098,48 @@ function autoScroll(x) {
     
     return false;
 }
+
+// 控制点检测函数
+function findNearestPoint(x, y) {
+    const threshold = 10;
+    let nearest = null;
+    let minDistance = threshold;
+
+    tracks.forEach(track => {
+        track.curves.forEach((curve, curveIndex) => {
+            curve.points.forEach((point, pointIndex) => {
+                const distance = Math.sqrt(
+                    Math.pow(point.x - x, 2) + 
+                    Math.pow(point.y - y, 2)
+                );
+                if (distance < minDistance) {
+                    minDistance = distance;
+                    nearest = {
+                        trackId: track.id,
+                        curveIndex: curveIndex,
+                        pointIndex: pointIndex
+                    };
+                }
+            });
+        });
+    });
+    return nearest;
+}
+
+// 在文件末尾统一导出所有需要的函数
+export {
+    initCanvas,
+    startDrawing,
+    draw,
+    stopDrawing,
+    playCurve,
+    clearCurve,
+    smoothCurve,
+    startNewCurve,
+    convertToLine,
+    updateCanvasWidth,
+    updateMeasureCount,
+    findNearestPoint,
+    sampleCurvePoints,
+    playCurvePoints
+};

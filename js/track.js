@@ -1,5 +1,21 @@
-// 音轨管理相关代码
-let tracks = [{
+// 导入所需的依赖
+import { initAudioContext, synths } from './synth.js';
+import { noteToFreq, getClosestNote } from './notes.js';
+import { sampleCurvePoints, playCurvePoints } from './curve.js';
+
+// 音乐设置
+export const musicSettings = {
+    bpm: 120,
+    timeSignature: {
+        numerator: 4,    // 每小节的拍数
+        denominator: 4    // 以几分音符为一拍
+    },
+    quantize: '8',       // 量化单位（8表示八分音符）
+    measureCount: 4      // 显示的小节数
+};
+
+// 首先声明所有要导出的变量和函数
+export let tracks = [{
     id: 1,
     name: '音轨 1',
     notes: [],
@@ -7,14 +23,19 @@ let tracks = [{
     instrument: 'guzheng'
 }];
 
-// 获取当前音轨ID的函数
-function getCurrentTrackId() {
+// 导出更新音乐设置的函数
+export function updateMusicSettings(newSettings) {
+    Object.assign(musicSettings, newSettings);
+    updateTracksDisplay();
+}
+
+// 导出所有需要的函数
+export function getCurrentTrackId() {
     const selector = document.getElementById('currentTrackSelector');
     return selector ? parseInt(selector.value) || 1 : 1;
 }
 
-// 添加音轨函数
-function addTrack() {
+export function addTrack() {
     const newTrack = {
         id: tracks.length + 1,
         name: `音轨 ${tracks.length + 1}`,
@@ -27,34 +48,8 @@ function addTrack() {
     updateTrackSelector();
 }
 
-// 更新音轨显示
-function updateTracksDisplay() {
-    const container = document.getElementById('tracks-container');
-    if (!container) return;
-    
-    container.innerHTML = tracks.map(track => `
-        <div class="track" data-track-id="${track.id}">
-            <div class="track-header">
-                <span class="track-title">${track.name}</span>
-                <div class="track-controls">
-                    <select onchange="changeTrackInstrument(${track.id}, this.value)">
-                        <option value="guzheng" ${track.instrument === 'guzheng' ? 'selected' : ''}>古筝</option>
-                        <option value="dizi" ${track.instrument === 'dizi' ? 'selected' : ''}>笛子</option>
-                    </select>
-                    <button onclick="playTrack(${track.id})">播放</button>
-                    <button onclick="clearTrack(${track.id})">清除</button>
-                    ${track.id > 1 ? `<button onclick="removeTrack(${track.id})">删除</button>` : ''}
-                </div>
-            </div>
-            <div class="track-notes" id="track-notes-${track.id}">
-                ${renderTrackNotes(track)}
-            </div>
-        </div>
-    `).join('');
-}
-
 // 更新音轨选择器
-function updateTrackSelector() {
+export function updateTrackSelector() {
     const selector = document.getElementById('currentTrackSelector');
     if (!selector) return;
     
@@ -65,6 +60,128 @@ function updateTrackSelector() {
     `).join('');
 }
 
+export function updateTracksDisplay() {
+    const container = document.getElementById('tracks-container');
+    if (!container) return;
+    
+    container.innerHTML = tracks.map(track => `
+        <div class="track" data-track-id="${track.id}">
+            <div class="track-header">
+                <span class="track-title">${track.name}</span>
+                <div class="track-controls">
+                    <select id="instrument-select-${track.id}">
+                        <option value="guzheng" ${track.instrument === 'guzheng' ? 'selected' : ''}>古筝</option>
+                        <option value="dizi" ${track.instrument === 'dizi' ? 'selected' : ''}>笛子</option>
+                    </select>
+                    <button id="play-track-${track.id}">播放</button>
+                    <button id="clear-track-${track.id}">清除</button>
+                    ${track.id > 1 ? `<button id="remove-track-${track.id}">删除</button>` : ''}
+                </div>
+            </div>
+            <div class="track-notes" id="track-notes-${track.id}">
+                ${renderTrackNotes(track)}
+            </div>
+        </div>
+    `).join('');
+
+    // 添加事件监听器
+    tracks.forEach(track => {
+        // 乐器选择
+        const instrumentSelect = document.getElementById(`instrument-select-${track.id}`);
+        if (instrumentSelect) {
+            instrumentSelect.addEventListener('change', (e) => changeTrackInstrument(track.id, e.target.value));
+        }
+        
+        // 播放按钮
+        const playButton = document.getElementById(`play-track-${track.id}`);
+        if (playButton) {
+            playButton.addEventListener('click', () => playTrack(track.id));
+        }
+        
+        // 清除按钮
+        const clearButton = document.getElementById(`clear-track-${track.id}`);
+        if (clearButton) {
+            clearButton.addEventListener('click', () => clearTrack(track.id));
+        }
+        
+        // 删除按钮
+        const removeButton = document.getElementById(`remove-track-${track.id}`);
+        if (removeButton) {
+            removeButton.addEventListener('click', () => removeTrack(track.id));
+        }
+    });
+}
+
+export function clearAllTracks() {
+    tracks.forEach(track => {
+        track.notes = [];
+        track.curves = [];
+    });
+    updateTracksDisplay();
+}
+
+export function switchCurrentTrack(trackId) {
+    const selector = document.getElementById('currentTrackSelector');
+    if (selector) {
+        selector.value = trackId;
+    }
+    updateTracksDisplay();
+}
+
+// 其他函数保持不变，但需要添加 export
+export function playTrack(trackId) {
+    const track = tracks.find(t => t.id === trackId);
+    if (!track) return;
+    
+    initAudioContext().then(() => {
+        const now = Tone.now();
+        
+        // 播放音符
+        track.notes.forEach(note => {
+            synths[track.instrument].triggerAttackRelease(
+                note.note,
+                note.duration,
+                now + note.time
+            );
+        });
+        
+        // 播放曲线
+        track.curves.forEach(curve => {
+            if (curve.points && curve.points.length > 0) {
+                const sampledPoints = sampleCurvePoints(curve.points);
+                playCurvePoints(sampledPoints, track.instrument, now);
+            }
+        });
+    });
+}
+
+export function clearTrack(trackId) {
+    const track = tracks.find(t => t.id === trackId);
+    if (track) {
+        track.notes = [];
+        track.curves = [];
+        updateTracksDisplay();
+    }
+}
+
+export function removeTrack(trackId) {
+    const index = tracks.findIndex(t => t.id === trackId);
+    if (index > 0) { // 不允许删除第一个音轨
+        tracks.splice(index, 1);
+        updateTracksDisplay();
+        updateTrackSelector();
+    }
+}
+
+export function changeTrackInstrument(trackId, instrument) {
+    const track = tracks.find(t => t.id === trackId);
+    if (track) {
+        track.instrument = instrument;
+        updateTracksDisplay();
+    }
+}
+
+// 其他辅助函数（不需要导出的）保持不变
 function renderTrackNotes(track) {
     let notesHtml = '';
     
@@ -286,135 +403,6 @@ function renderTrackCurves(track) {
     return curvesHtml;
 }
 
-// 添加音轨播放函数
-function playTrack(trackId) {
-    const track = tracks.find(t => t.id === trackId);
-    if (!track) return;
-    
-    initAudioContext().then(() => {
-        const now = Tone.now();
-        
-        // 播放音符
-        track.notes.forEach(note => {
-            synths[track.instrument].triggerAttackRelease(
-                note.note,
-                note.duration,
-                now + note.time
-            );
-        });
-        
-        // 播放曲线
-        track.curves.forEach(curve => {
-            if (curve.points && curve.points.length > 0) {
-                const sampledPoints = sampleCurvePoints(curve.points);
-                playCurvePoints(sampledPoints, track.instrument, now);
-            }
-        });
-    });
-}
-
-// 添加音轨清除函数
-function clearTrack(trackId) {
-    const track = tracks.find(t => t.id === trackId);
-    if (track) {
-        track.notes = [];
-        track.curves = [];
-        updateTracksDisplay();
-    }
-}
-
-// 添加音轨删除函数
-function removeTrack(trackId) {
-    const index = tracks.findIndex(t => t.id === trackId);
-    if (index > 0) { // 不允许删除第一个音轨
-        tracks.splice(index, 1);
-        updateTracksDisplay();
-        updateTrackSelector();
-    }
-}
-
-// 添加音轨乐器更改函数
-function changeTrackInstrument(trackId, instrument) {
-    const track = tracks.find(t => t.id === trackId);
-    if (track) {
-        track.instrument = instrument;
-        updateTracksDisplay();
-    }
-}
-
-// 添加新音符函数
-function addNote(trackId) {
-    const track = tracks.find(t => t.id === trackId);
-    if (!track) return;
-    
-    const newNote = {
-        note: 'C4',
-        time: 0,
-        duration: 60 / musicSettings.bpm,
-        velocity: 100,
-        instrument: track.instrument
-    };
-    
-    track.notes.push(newNote);
-    updateTracksDisplay();
-    editNote(trackId, track.notes.length - 1);
-}
-
-// 添加删除音符函数
-function deleteNote(trackId, noteIndex) {
-    const track = tracks.find(t => t.id === trackId);
-    if (!track || !track.notes[noteIndex]) return;
-    
-    track.notes.splice(noteIndex, 1);
-    closeNoteEditPanel();
-    updateTracksDisplay();
-}
-
-// 添加音符到曲线的转换函数
-function updateCurveFromNotes(trackId) {
-    const track = tracks.find(t => t.id === trackId);
-    if (!track || !track.notes.length) return;
-    
-    // 创建新的曲线点
-    const points = [];
-    const totalDuration = Math.max(...track.notes.map(n => n.time + n.duration));
-    
-    // 为每个音符创建控制点
-    track.notes.forEach(note => {
-        // 音符开始点
-        points.push({
-            x: (note.time / totalDuration) * canvas.width,
-            y: noteToCanvasY(note.note),
-            width: note.velocity / 127 * maxWidth || minWidth
-        });
-        
-        // 音符结束点
-        points.push({
-            x: ((note.time + note.duration) / totalDuration) * canvas.width,
-            y: noteToCanvasY(note.note),
-            width: note.velocity / 127 * maxWidth || minWidth
-        });
-    });
-    
-    // 按时间排序点
-    points.sort((a, b) => a.x - b.x);
-    
-    // 更新或创建曲线
-    if (track.curves.length === 0) {
-        track.curves.push({
-            points: points,
-            trackId: trackId,
-            instrument: track.instrument
-        });
-    } else {
-        track.curves[0].points = points;
-    }
-    
-    // 更新显示
-    updateTracksDisplay();
-    drawAllCurves();
-}
-
 // 添加音符拖拽相关状态
 let noteDragState = {
     isDragging: false,
@@ -455,7 +443,7 @@ function startNoteDrag(e, trackId, noteIndex) {
     document.addEventListener('mouseup', stopNoteDrag);
 }
 
-// 添加音符大小调整开始函数
+// 添���音符大小调整开始函数
 function startNoteResize(e, trackId, noteIndex, type) {
     e.stopPropagation();
     
@@ -550,4 +538,30 @@ function stopNoteResize() {
     noteDragState.isDragging = false;
     document.removeEventListener('mousemove', handleNoteResize);
     document.removeEventListener('mouseup', stopNoteResize);
+}
+
+// 添加播放所有音轨的函数
+export function playAllTracks() {
+    initAudioContext().then(() => {
+        const now = Tone.now();
+        
+        tracks.forEach(track => {
+            // 播放音符
+            track.notes.forEach(note => {
+                synths[track.instrument].triggerAttackRelease(
+                    note.note,
+                    note.duration,
+                    now + note.time
+                );
+            });
+            
+            // 播放曲线
+            track.curves.forEach(curve => {
+                if (curve.points && curve.points.length > 0) {
+                    const sampledPoints = sampleCurvePoints(curve.points);
+                    playCurvePoints(sampledPoints, track.instrument, now);
+                }
+            });
+        });
+    });
 }

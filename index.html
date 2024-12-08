@@ -5,11 +5,11 @@
     <title>中国风乐器模拟器</title>
     <link rel="stylesheet" href="styles/main.css">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"></script>
-    <script src="js/notes.js"></script>
-    <script src="js/synth.js"></script>
-    <script src="js/track.js"></script>
-    <script src="js/curve.js"></script>
-    <script src="js/app.js"></script>
+    <script type="module" src="js/notes.js"></script>
+    <script type="module" src="js/synth.js"></script>
+    <script type="module" src="js/track.js"></script>
+    <script type="module" src="js/curve.js"></script>
+    <script type="module" src="js/app.js"></script>
 </head>
 <body>
     <div class="container">
@@ -28,10 +28,10 @@
         <div class="composition">
             <h3>编曲区域</h3>
             <div class="composition-controls">
-                <button onclick="addTrack()">添加音轨</button>
-                <button onclick="convertToLine()">转换为曲线</button>
-                <button onclick="playAllTracks()">播放全部</button>
-                <button onclick="clearAllTracks()">清除全部</button>
+                <button id="addTrackBtn">添加音轨</button>
+                <button id="convertToLineBtn">转���为曲线</button>
+                <button id="playAllTracksBtn">播放全部</button>
+                <button id="clearAllTracksBtn">清除全部</button>
             </div>
             <div id="tracks-container"></div>
         </div>
@@ -89,10 +89,10 @@
                 </div>
             </div>
             <div class="editor-controls">
-                <button onclick="playCurve()">播放曲</button>
-                <button onclick="clearCurve()">清除曲线</button>
-                <button onclick="smoothCurve()">平滑曲线</button>
-                <button onclick="startNewCurve()">新曲线</button>
+                <button id="playCurveBtn">播放曲</button>
+                <button id="clearCurveBtn">清除曲线</button>
+                <button id="smoothCurveBtn">平滑曲线</button>
+                <button id="startNewCurveBtn">新曲线</button>
                 <select id="curveInstrument">
                     <option value="guzheng">古筝</option>
                     <option value="dizi">笛子</option>
@@ -135,6 +135,18 @@
                 </div>
             </div>
         </div>
+        <button id="initAudio" onclick="initAudio()">点击初始化音频</button>
     </div>
+    <script type="module">
+        import { initAudioContext } from './js/synth.js';
+        window.initAudio = async () => {
+            try {
+                await initAudioContext();
+                document.getElementById('initAudio').style.display = 'none';
+            } catch (error) {
+                console.error('初始化音频失败:', error);
+            }
+        };
+    </script>
 </body>
 </html> 

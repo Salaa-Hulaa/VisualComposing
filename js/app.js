@@ -1,8 +1,34 @@
+import { initAudioContext, synths, presets, setSynthPreset } from './synth.js';
+import { 
+    tracks, 
+    updateTracksDisplay, 
+    getCurrentTrackId, 
+    switchCurrentTrack, 
+    addTrack, 
+    clearAllTracks,
+    musicSettings,
+    updateMusicSettings,
+    playAllTracks 
+} from './track.js';
+import { getClosestNote } from './notes.js';
+import { 
+    initCanvas,
+    startDrawing,
+    draw,
+    stopDrawing,
+    playCurve,
+    clearCurve,
+    smoothCurve,
+    startNewCurve,
+    convertToLine,
+    updateCanvasWidth,
+    updateMeasureCount
+} from './curve.js';
+
 document.addEventListener('DOMContentLoaded', function() {
     try {
         // 首先初始化音轨
         updateTracksDisplay();
-        updateTrackSelector();
         
         // 然后初始化画布
         initCanvas();
@@ -41,12 +67,27 @@ function initializeEventListeners() {
         canvas.addEventListener('mouseout', stopDrawing);
     }
 
-    // 其他按钮事件
+    // 其他按钮事
     document.querySelectorAll('button').forEach(button => {
         button.addEventListener('click', async () => {
             await initAudioContext();
         });
     });
+
+    // 添加音轨控制按钮事件
+    document.getElementById('addTrackBtn')?.addEventListener('click', addTrack);
+    document.getElementById('clearAllTracksBtn')?.addEventListener('click', clearAllTracks);
+    document.getElementById('convertToLineBtn')?.addEventListener('click', convertToLine);
+    document.getElementById('playAllTracksBtn')?.addEventListener('click', async () => {
+        await initAudioContext();
+        playAllTracks();
+    });
+
+    // 添加曲线编辑器按钮事件
+    document.getElementById('playCurveBtn')?.addEventListener('click', playCurve);
+    document.getElementById('clearCurveBtn')?.addEventListener('click', clearCurve);
+    document.getElementById('smoothCurveBtn')?.addEventListener('click', smoothCurve);
+    document.getElementById('startNewCurveBtn')?.addEventListener('click', startNewCurve);
 }
 
 function generateNotes(instrumentId) {
@@ -71,8 +112,16 @@ function generateNotes(instrumentId) {
 }
 
 function playNote(frequency, instrument) {
-    const note = getClosestNote(frequency);
-    synths[instrument].triggerAttackRelease(note, '8n');
+    try {
+        const note = getClosestNote(frequency);
+        if (synths[instrument]) {
+            synths[instrument].triggerAttackRelease(note, '8n');
+        } else {
+            console.warn(`Synth not found for instrument: ${instrument}`);
+        }
+    } catch (error) {
+        console.error('Error playing note:', error);
+    }
 }
 
 // 添加更新音轨选择器的函数
